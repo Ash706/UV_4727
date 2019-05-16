@@ -1,0 +1,120 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+```{r, eval=TRUE, echo=FALSE, warning=FALSE}
+library(dplyr)
+library(tidyverse)
+library(readr)
+library(limma) #install from bioconductor 
+library(NormalyzerDE)
+library(ggbiplot) #devtools had to be installed through Conda commmand line before installation of ggbiplot from github
+library("Hmisc") # for %nin% function
+```
+
+# Load and filter data 
+
+```{r, message=FALSE}
+Array_data<- read_tsv("/Users/cob-aaf/Documents/Projects/4726/Data/2013-33_QN_Data_Filtered_median_80.0_per_log2.txt")
+column_meta<-read_tsv("/Users/cob-aaf/Documents/Projects/4726/Data/column_meta.txt")
+row_meta<-Array_data %>% select(.,-c(column_meta$Sample_ID))
+data<-Array_data %>% select(.,c(column_meta$Sample_ID))
+data<-as.matrix(data)
+rownames(data)<-row_meta$Accession
+data<-avereps(data, ID=rownames(data)) #average the duplicated probes.
+
+data_filtered<-data[which(matrixStats::rowVars(as.matrix(data)) >0.05),] # Filter out the probes with less than 2 percent variance.
+row_meta_filtered<-row_meta[which(rownames(data_filtered) %in% row_meta$Accession), ] 
+```
+
+# PCA plot and remove outliers if any
+
+```{r,fig2, fig.height= 6, fig.width=6,echo=FALSE,message=FALSE, split= TRUE}
+pc1<-prcomp(t(data_filtered), center = TRUE, scale = TRUE)
+samples<-as.character(column_meta$group_name)
+#bmicat<-as.character(bl.data.for.pca$bmicat)
+g <- ggbiplot(pc1, obs.scale = 1, var.scale = 1, 
+              groups = samples, ellipse = TRUE, 
+              circle = TRUE, choices = c(1,2),alpha = 0.4, var.axes = FALSE , labels = column_meta$sample_name)
+g <- g + scale_color_discrete(name = samples)
+g <- g + theme(legend.direction = 'horizontal', 
+               legend.position = 'top' ) 
+print(g)
+```
+
+# Remove the outlier as seen in The PCA above
+
+```{r}
+outlier<-c("IRweek4 n1")
+data_filtered<-data_filtered[,colnames(data_filtered) %nin% "IRweek4 n1"] %>% head()
+column_meta<- column_meta[which(column_meta$sample_name %nin% "IRweek4 n1"),]
+```
+
+# PCA plot and remove outliers if any
+
+```{r,fig3, fig.height= 6, fig.width=6,echo=FALSE,message=FALSE, split= TRUE}
+pc1<-prcomp(t(data_filtered), center = TRUE, scale = TRUE)
+samples<-as.character(column_meta$group_name)
+#bmicat<-as.character(bl.data.for.pca$bmicat)
+g <- ggbiplot(pc1, obs.scale = 1, var.scale = 1, 
+              groups = samples, ellipse = TRUE, 
+              circle = TRUE, choices = c(1,2),alpha = 0.4, var.axes = FALSE , labels = column_meta$sample_name)
+g <- g + scale_color_discrete(name = samples)
+g <- g + theme(legend.direction = 'horizontal', 
+               legend.position = 'top' ) 
+print(g)
+```
+
+#Build contrast matrices
+
+```{r}
+## Limma Design Matrix
+column_meta$group_name<-as.factor(column_meta$group_name)
+design<- model.matrix(~group_name,data=column_meta, ref="IR-0")
+design<- model.matrix(~0+group_name,data=column_meta)
+colnames(design)<-c("Tumor","Control", "Week1", "Week4")
+fit<-lmFit(data_filtered,design)
+contrast.matrix <- makeContrasts(Tumor-Control,Week1-Control, Tumor-Week1,Tumor-Week1, levels=design) #Tumor-Week1, Tumor-Week4, Week4-Control, Tumor-Week4  Week4-Week1removed for venn
+fit2 <- contrasts.fit(fit, contrast.matrix)
+
+fit2 <- eBayes(fit2)
+
+results<-decideTests(fit2 )
+vennDiagram(results)
+Summary_stats<-topTable(fit2, coef="Tumor - Control", adjust="BH" , p.value = 0.05, lfc = 0, number = 500000)
+Summary_stats2<-topTable(fit2, coef="Tumor - Week4", adjust="BH" , p.value = 0.05, lfc = 2,number = 500000)
+```
+
+
+Summary_stats<-topTable(fit2, coef="Tumor - Control", adjust="BH" , p.value = 0.05, lfc = 2, number = 500000)
+Summary_stats2<-topTable(fit2, coef="Tumor - Week4", adjust="BH" , p.value = 0.05, lfc = 2,number = 500000)
+
+
+Diff_exp_log2<-topTable(fit2, p.value = 1, number = 50000)
+Hypoxia_all<-data.frame(Row_Anno[rownames(Diff_exp_log2),], Diff_exp_log2, data[rownames(Diff_exp_log2),])
+#write.table(Hypoxia_all, "~/Documents/Projects/4620/All_summary_stats_full_annotations.tsv", sep = "\t", row.names = FALSE)
+
+Hypoxia_all_IPA<-Hypoxia_all[, c("Probe.Set.ID", "Gene.Symbol", "mRNA.Accession", "mRna...Description","logFC", "AveExpr", "P.Value", "adj.P.Val")]
+
+#write.table(Hypoxia_all_IPA, "~/Documents/Projects/4620/All_summary_stats.tsv", sep = "\t",row.names = FALSE)
+
+Diff_exp_log2_sig<-topTable(fit2, p.value = 0.05, lfc = 2,number = 50000)
+Hypoxia_sig<-data.frame(Row_Anno[rownames(Diff_exp_log2_sig),], Diff_exp_log2_sig, data[rownames(Diff_exp_log2_sig),])
+
+plotMD(fit2, column = 3)
+
+```
+
+```{r}
+
+fl <- as.factor(treatment)
+gset$description <- fl
+design <- model.matrix(~ description + 0, gset)
+colnames(design) <- levels(fl)
+cont_matrix <-makeContrasts(AsthmaICS - Asthma, levels = design)
+fit <- lmFit(gset, design)
+fit_contrast <- contrasts.fit(fit, cont_matrix)
+fit_bayes <- eBayes(fit_contrast)
+
+```
+

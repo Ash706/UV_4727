@@ -1,0 +1,5 @@
+# pack-refs with: peeled fully-peeled sorted 
+564dfafe88060418377aa08a746bb26a13e7e1bf refs/heads/jupyter_template_b
+2e7364800767fbd39c8a283b25835f0daf70f9eb refs/heads/master
+3423303fea80b063b7ec9dbddc348826e3db0f83 refs/tags/0.1.0
+^ea28058e00f20c4917140827d9f2e7662440a495
